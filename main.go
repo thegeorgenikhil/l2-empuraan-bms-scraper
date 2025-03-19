@@ -80,6 +80,7 @@ func init() {
 }
 
 func main() {
+	startTime := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
 			logger.WithFields(logrus.Fields{
@@ -171,6 +172,9 @@ func main() {
 	if err := saveMoviesToJSON(moviesFilename, moviesList); err != nil {
 		logger.WithError(err).Error("Error saving final state to JSON")
 	}
+
+	duration := time.Since(startTime)
+	logger.WithField("duration_in_seconds", duration.Seconds()).Info("cron completed")
 }
 
 func loadMoviesFromJSON(filename string) ([]MovieDetails, error) {
