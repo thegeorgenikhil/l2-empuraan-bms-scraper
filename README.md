@@ -1,4 +1,4 @@
-# BookMyShow Bookings Open Alert System
+# BookMyShow Bookings Open Telegram Alert System
 
 [L2: Empuraan BookMyShow Alerts Channel](https://t.me/l2e_bms_alerts)
 
