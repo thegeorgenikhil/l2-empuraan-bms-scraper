@@ -4,6 +4,8 @@
 
 A Go-based web scraper that monitors BookMyShow for when a new movie's bookings open and sends Telegram notifications when bookings open for specified movies.
 
+> **Note:** If you encounter browser auto-download issues during the first run, you might need to manually download it, refer to the [Rod documentation](https://go-rod.github.io/#/compatibility) for browser compatibility troubleshooting.
+
 ## Overview
 
 Get notified when new movie bookings open up.
@@ -19,7 +21,7 @@ The system:
 - Go 1.24.1 or higher
 - Telegram Bot Token and Chat ID(for sending notifications)
 
-## Installation
+## How to Setup
 
 1. Install Go:
 ```bash
