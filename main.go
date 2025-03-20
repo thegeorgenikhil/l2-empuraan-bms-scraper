@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -46,6 +47,7 @@ var (
 	logger           = logrus.New()
 	telegramBotToken string
 	telegramChatID   string
+	iftttWebhookAPI string
 )
 
 func init() {
@@ -63,6 +65,11 @@ func init() {
 	telegramChatID = os.Getenv("TELEGRAM_CHAT_ID")
 	if telegramChatID == "" {
 		logger.Fatal("TELEGRAM_CHAT_ID environment variable not set")
+	}
+
+	iftttWebhookAPI = os.Getenv("IFTTT_WEBHOOK_API")
+	if iftttWebhookAPI == "" {
+		logger.Fatal("IFTTT_WEBHOOK_API environment variable not set")
 	}
 
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -158,7 +165,22 @@ func main() {
 				},
 			}
 
-			sendTelegramNotification(telegramChatID, notificationMsg, "Markdown", bookingKeyboard)
+			err = sendTelegramNotification(telegramChatID, notificationMsg, "Markdown", bookingKeyboard)
+			if err != nil {
+				logger.WithFields(logrus.Fields{
+					"movie": moviesList[i].Name,
+					"error": err,
+				}).Error("Error sending Telegram notification")
+			}
+
+			err = sendIFTTTVoipCall(moviesList[i].Name)
+			if err != nil {
+				logger.WithFields(logrus.Fields{
+					"movie": moviesList[i].Name,
+					"error": err,
+				}).Error("Error sending IFTTT VoIP call")
+			}
+
 			logger.WithFields(logrus.Fields{
 				"movie": moviesList[i].Name,
 				"date": formattedDate,
@@ -235,6 +257,32 @@ func sendTelegramNotification(chatID string, message string, parseMode string, k
 	if !apiResponse.Ok {
 		return fmt.Errorf("telegram API error: %s", apiResponse.Description)
 	}
+
+	return nil
+}
+
+func sendIFTTTVoipCall(value string) error {
+	payload := map[string]string{
+		"value1": value,
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("error marshaling payload: %v", err)
+	}
+
+	response, err := http.Post(iftttWebhookAPI, "application/json", bytes.NewBuffer(payloadJSON))
+	if err != nil {
+		return fmt.Errorf("error making IFTTT request: %v", err)
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return fmt.Errorf("error reading response body: %v", err)
+	}
+
+	logger.WithField("response", string(body)).Info("got response from IFTTT")
 
 	return nil
 }
