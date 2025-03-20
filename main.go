@@ -113,17 +113,15 @@ func main() {
 			continue
 		}
 
-		browser := rod.New().Timeout(time.Minute * 2)
+		browser := rod.New().Timeout(time.Minute * 1)
 		if err := browser.Connect(); err != nil {
-			logger.WithFields(logrus.Fields{
-				"movie": moviesList[i].Name,
-				"error": err,
-			}).Error("Error connecting to browser")
-			continue
+			logger.WithError(err).Fatal("Error connecting to browser")
 		}
-		defer browser.Close()
+		defer browser.Close()	
 
 		page := stealth.MustPage(browser)
+		defer page.Close()	
+
 		bookingURL := fmt.Sprintf("https://in.bookmyshow.com/buytickets/%s-%s/movie-%s-%s-MT/%s",
 			moviesList[i].SlugName, moviesList[i].City, moviesList[i].CityCode, moviesList[i].Code, moviesList[i].Date)
 
