@@ -7,7 +7,6 @@ require (
 	github.com/go-rod/stealth v0.4.9
 	github.com/joho/godotenv v1.5.1
 	github.com/sirupsen/logrus v1.9.3
-	golang.org/x/text v0.23.0
 )
 
 require (

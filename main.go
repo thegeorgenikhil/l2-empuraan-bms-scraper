@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -15,18 +16,22 @@ import (
 	"github.com/go-rod/stealth"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 type MovieDetails struct {
-	Name     string `json:"name"`
-	SlugName string `json:"slug_name"`
-	Code     string `json:"code"`
-	City     string `json:"city"`
-	CityCode string `json:"city_code"`
-	Date     string `json:"date"`
-	Found    bool   `json:"found"`
+	Name     string   `json:"name"`
+	SlugName string   `json:"slug_name"`
+	Code     string   `json:"code"`
+	City     string   `json:"city"`
+	CityCode string   `json:"city_code"`
+	Date     string   `json:"date"`
+	Found    bool     `json:"found"`
+	Theatres []string `json:"theatres"`
+}
+
+type TheatreDetails struct {
+	Name      string `json:"name"`
+	ShowCount int    `json:"show_count"`
 }
 
 type TelegramButton struct {
@@ -47,7 +52,7 @@ var (
 	logger           = logrus.New()
 	telegramBotToken string
 	telegramChatID   string
-	iftttWebhookAPI string
+	iftttWebhookAPI  string
 )
 
 func init() {
@@ -117,10 +122,10 @@ func main() {
 		if err := browser.Connect(); err != nil {
 			logger.WithError(err).Fatal("Error connecting to browser")
 		}
-		defer browser.Close()	
+		defer browser.Close()
 
 		page := stealth.MustPage(browser)
-		defer page.Close()	
+		defer page.Close()
 
 		bookingURL := fmt.Sprintf("https://in.bookmyshow.com/buytickets/%s-%s/movie-%s-%s-MT/%s",
 			moviesList[i].SlugName, moviesList[i].City, moviesList[i].CityCode, moviesList[i].Code, moviesList[i].Date)
@@ -145,47 +150,78 @@ func main() {
 			continue
 		}
 
+		var theatreDetails []TheatreDetails
 		if len(theatreElements) > 0 {
-			moviesList[i].Found = true
+			for _, theatreEl := range theatreElements {
+				theatreNameDiv, _ := theatreEl.Element(".sc-7o7nez-0.iueRmY")
+				theatreShowsEl, _ := theatreEl.Elements(".sc-1vhizuf-2.ezssdA")
+				theatreName, _ := theatreNameDiv.Text()
+				theatreDetails = append(theatreDetails, TheatreDetails{
+					Name:      theatreName,
+					ShowCount: len(theatreShowsEl),
+				})
+			}
+		}
+
+		var newTheatres []TheatreDetails
+		for _, theatre := range theatreDetails {
+			if theatre.Name == "" {
+				continue
+			}
+
+			if !slices.Contains(moviesList[i].Theatres, theatre.Name) {
+				moviesList[i].Theatres = append(moviesList[i].Theatres, theatre.Name)
+				newTheatres = append(newTheatres, theatre)
+			}
+		}
+
+		if len(newTheatres) > 0 {
 			showDate := moviesList[i].Date
 			formattedDate := fmt.Sprintf("%s-%s-%s", showDate[6:8], showDate[4:6], showDate[0:4])
-			notificationMsg := fmt.Sprintf("🎬 *ALERT: Bookings Started!*\n\n🎥 Movie: *%s*\n📅 Date: *%s*\n🏟️ Found %d theatres in *%s*",
-				moviesList[i].Name, formattedDate, len(theatreElements), cases.Title(language.English).String(moviesList[i].City))
 
-			bookingKeyboard := TelegramKeyboard{
-				InlineKeyboard: [][]TelegramButton{
-					{
+			for _, theatre := range newTheatres {
+				notificationMsg := fmt.Sprintf("🎬 *New Show Added!*\n\n🎥 Movie: *%s*\n📅 Date: *%s*\n🏟️ Theatre: *%s*\nShows: *%d*",
+					moviesList[i].Name, formattedDate, theatre.Name, theatre.ShowCount)
+
+				bookingKeyboard := TelegramKeyboard{
+					InlineKeyboard: [][]TelegramButton{
 						{
-							Text: "🎟️ Book Now",
-							URL:  bookingURL,
+							{
+								Text: "🎟️ Book Now",
+								URL:  bookingURL,
+							},
 						},
 					},
-				},
-			}
+				}
 
-			err = sendTelegramNotification(telegramChatID, notificationMsg, "Markdown", bookingKeyboard)
-			if err != nil {
+				if theatre.Name == "Cinepolis: Centre Square, Kochi" {
+					err = sendIFTTTVoipCall(moviesList[i].Name + " at IMAX")
+					if err != nil {
+						logger.WithFields(logrus.Fields{
+							"movie":   moviesList[i].Name,
+							"theatre": theatre.Name,
+							"error":   err,
+						}).Error("Error sending IFTTT VoIP call")
+					}
+				}
+
+				err = sendTelegramNotification(telegramChatID, notificationMsg, "Markdown", bookingKeyboard)
+				if err != nil {
+					logger.WithFields(logrus.Fields{
+						"movie":   moviesList[i].Name,
+						"theatre": theatre.Name,
+						"error":   err,
+					}).Error("Error sending Telegram notification")
+				}
+
 				logger.WithFields(logrus.Fields{
-					"movie": moviesList[i].Name,
-					"error": err,
-				}).Error("Error sending Telegram notification")
+					"movie":   moviesList[i].Name,
+					"date":    formattedDate,
+					"theatre": theatre.Name,
+					"shows":   theatre.ShowCount,
+					"url":     bookingURL,
+				}).Info("Found new show")
 			}
-
-			err = sendIFTTTVoipCall(moviesList[i].Name)
-			if err != nil {
-				logger.WithFields(logrus.Fields{
-					"movie": moviesList[i].Name,
-					"error": err,
-				}).Error("Error sending IFTTT VoIP call")
-			}
-
-			logger.WithFields(logrus.Fields{
-				"movie": moviesList[i].Name,
-				"date": formattedDate,
-				"theatres": len(theatreElements),
-				"city": moviesList[i].City,
-				"url": bookingURL,
-			}).Info("Found movie with available bookings")
 		}
 	}
 
