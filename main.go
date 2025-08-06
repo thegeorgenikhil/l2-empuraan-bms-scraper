@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -52,7 +51,6 @@ var (
 	logger           = logrus.New()
 	telegramBotToken string
 	telegramChatID   string
-	iftttWebhookAPI  string
 )
 
 func init() {
@@ -70,11 +68,6 @@ func init() {
 	telegramChatID = os.Getenv("TELEGRAM_CHAT_ID")
 	if telegramChatID == "" {
 		logger.Fatal("TELEGRAM_CHAT_ID environment variable not set")
-	}
-
-	iftttWebhookAPI = os.Getenv("IFTTT_WEBHOOK_API")
-	if iftttWebhookAPI == "" {
-		logger.Fatal("IFTTT_WEBHOOK_API environment variable not set")
 	}
 
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -127,12 +120,13 @@ func main() {
 		page := stealth.MustPage(browser)
 		defer page.Close()
 
-		bookingURL := fmt.Sprintf("https://in.bookmyshow.com/buytickets/%s-%s/movie-%s-%s-MT/%s",
-			moviesList[i].SlugName, moviesList[i].City, moviesList[i].CityCode, moviesList[i].Code, moviesList[i].Date)
+		bookingURL := fmt.Sprintf("https://in.bookmyshow.com/movies/%s/%s/buytickets/%s/%s",
+			moviesList[i].City, moviesList[i].SlugName, moviesList[i].Code, moviesList[i].Date)
+
 
 		page.MustNavigate(bookingURL).MustWaitDOMStable()
 
-		theatreContainer, err := page.Element(".sc-tk4ce6-2.kozbLe")
+		theatreContainer, err := page.Element(".ReactVirtualized__Grid__innerScrollContainer")
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"movie": moviesList[i].Name,
@@ -141,7 +135,7 @@ func main() {
 			continue
 		}
 
-		theatreElements, err := theatreContainer.Elements(".sc-e8nk8f-3.iFKUFD")
+		theatreElements, err := theatreContainer.Elements(".sc-e8nk8f-3.hStBrg")
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"movie": moviesList[i].Name,
@@ -153,8 +147,8 @@ func main() {
 		var theatreDetails []TheatreDetails
 		if len(theatreElements) > 0 {
 			for _, theatreEl := range theatreElements {
-				theatreNameDiv, _ := theatreEl.Element(".sc-7o7nez-0.iueRmY")
-				theatreShowsEl, _ := theatreEl.Elements(".sc-1vhizuf-2.ezssdA")
+				theatreNameDiv, _ := theatreEl.Element(".sc-1qdowf4-0.fbRYHb")
+				theatreShowsEl, _ := theatreEl.Elements(".sc-1la7659-0.bLMTPx")
 				theatreName, _ := theatreNameDiv.Text()
 				theatreDetails = append(theatreDetails, TheatreDetails{
 					Name:      theatreName,
@@ -192,17 +186,6 @@ func main() {
 							},
 						},
 					},
-				}
-
-				if theatre.Name == "Cinepolis: Centre Square, Kochi" {
-					err = sendIFTTTVoipCall(moviesList[i].Name + " at IMAX")
-					if err != nil {
-						logger.WithFields(logrus.Fields{
-							"movie":   moviesList[i].Name,
-							"theatre": theatre.Name,
-							"error":   err,
-						}).Error("Error sending IFTTT VoIP call")
-					}
 				}
 
 				err = sendTelegramNotification(telegramChatID, notificationMsg, "Markdown", bookingKeyboard)
@@ -291,32 +274,6 @@ func sendTelegramNotification(chatID string, message string, parseMode string, k
 	if !apiResponse.Ok {
 		return fmt.Errorf("telegram API error: %s", apiResponse.Description)
 	}
-
-	return nil
-}
-
-func sendIFTTTVoipCall(value string) error {
-	payload := map[string]string{
-		"value1": value,
-	}
-
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("error marshaling payload: %v", err)
-	}
-
-	response, err := http.Post(iftttWebhookAPI, "application/json", bytes.NewBuffer(payloadJSON))
-	if err != nil {
-		return fmt.Errorf("error making IFTTT request: %v", err)
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return fmt.Errorf("error reading response body: %v", err)
-	}
-
-	logger.WithField("response", string(body)).Info("got response from IFTTT")
 
 	return nil
 }
